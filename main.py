@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from typing import Dict, Tuple, List
 from pathlib import Path
-from osrparse import Mod, Replay  # Updated import
+from osrparse import Mod, Replay
 from dataclasses import dataclass
 from enum import Flag, auto
 import os
@@ -18,6 +18,7 @@ import shlex
 from urllib.parse import unquote
 import re
 
+# Program configuration
 PROGRAM_VERSION = "1.0.0"
 PROGRAM_INFO = """
 Circle Hold Distribution Analyzer
@@ -29,6 +30,8 @@ GitHub: https://github.com/tamaisme/circle-hold-contribution
 
 @dataclass
 class Settings:
+    """Settings class for managing application configuration"""
+
     output_dir: str = "output"
     output_format: str = "png"
 
@@ -50,6 +53,8 @@ class Settings:
 
 
 class StandardKeys(Flag):
+    """OSU! standard key flags for parsing replay data"""
+
     K1 = auto()
     K2 = auto()
 
@@ -57,7 +62,14 @@ class StandardKeys(Flag):
 def analyze_replay_holdtimes(
     replay_path: str, settings: Settings
 ) -> Tuple[Dict[int, int], Dict[int, int], Replay, dict]:
-    """Analyzes holdtimes from a replay file"""
+    """
+    Analyzes holdtimes from replay file
+    Returns:
+        - dist1: K1 holdtime distribution
+        - dist2: K2 holdtime distribution
+        - replay: Replay object
+        - stats: Statistics including counts and averages
+    """
     replay = Replay.from_path(replay_path)
     offset = 0
     key1 = []
@@ -138,7 +150,13 @@ def plot_holdtime_distribution(
     stats: dict,
     beatmap_name: str = "Unknown",
 ):
-    """Creates a visualization of holdtime distributions"""
+    """
+    Creates visualization of holdtime distributions
+    Key features:
+    - Automatic region detection and splitting
+    - Density-based visualization
+    - Metadata display including player, map, and mod info
+    """
     plt.style.use("dark_background")
     fig, ax = plt.subplots(figsize=(12, 6))
 
@@ -168,7 +186,7 @@ def plot_holdtime_distribution(
 
     for i in range(len(bins) - 1):
         has_data = times1[i] > 0 or times2[i] > 0
-        
+
         if has_data:
             if current_region is None:
                 current_region = [i, i]
@@ -180,29 +198,31 @@ def plot_holdtime_distribution(
             # Check density of current region
             region_length = current_region[1] - current_region[0] + 1
             density = sum(current_density) / region_length
-            
+
             # Split region if it's too sparse
             if region_length > 10 and density < density_threshold:
                 # Find dense sub-regions
                 sub_regions = []
                 sub_start = current_region[0]
                 last_data = 0
-                
+
                 for j, has_point in enumerate(current_density):
                     if has_point:
                         if j - last_data > gap_threshold:
                             if sub_start < current_region[0] + last_data:
-                                sub_regions.append([sub_start, current_region[0] + last_data])
+                                sub_regions.append(
+                                    [sub_start, current_region[0] + last_data]
+                                )
                             sub_start = current_region[0] + j
                         last_data = j
-                
+
                 if sub_start <= current_region[0] + last_data:
                     sub_regions.append([sub_start, current_region[0] + last_data])
-                
+
                 active_regions.extend(sub_regions)
             else:
                 active_regions.append(current_region)
-            
+
             current_region = None
             current_density = []
 
@@ -393,8 +413,104 @@ def clean_file_path(file_path: str) -> str:
     return os.path.normpath(path.strip())
 
 
-def process_dropped_file(file_path: str, settings: Settings):
-    """Process a dropped replay file"""
+def analyze_frame_times(replay_data) -> Dict[str, any]:
+    """
+    Analyzes frame timing distribution from replay data
+    Returns dictionary containing:
+        - avg: Average frame time
+        - min/max: Frame time range
+        - distribution: Frame time frequency
+        - unstable_rate: Frame timing consistency (lower is better)
+    """
+    frame_times = []
+    for frame in replay_data:
+        if frame.time_delta > 0:  # Ignore zero deltas
+            frame_times.append(frame.time_delta)
+
+    if not frame_times:
+        return {"avg": 0, "min": 0, "max": 0, "distribution": {}, "unstable_rate": 0}
+
+    # Calculate statistics
+    avg_frame = np.mean(frame_times)
+    min_frame = min(frame_times)
+    max_frame = max(frame_times)
+    unstable_rate = np.std(frame_times) * 10
+
+    # Create distribution
+    frame_dist = {}
+    for time in frame_times:
+        rounded = round(time)
+        frame_dist[rounded] = frame_dist.get(rounded, 0) + 1
+
+    return {
+        "avg": round(avg_frame, 2),
+        "min": round(min_frame, 2),
+        "max": round(max_frame, 2),
+        "distribution": frame_dist,
+        "unstable_rate": round(unstable_rate, 2),
+    }
+
+
+def plot_frame_distribution(frame_stats: Dict[str, any], replay) -> plt.Figure:
+    """
+    Creates visualization of frame time distribution
+    Shows:
+    - Frame time frequency
+    - Performance metrics
+    - Player and replay metadata
+    """
+    plt.style.use("dark_background")
+    fig, ax = plt.subplots(figsize=(12, 4))
+
+    # Plot distribution
+    times = sorted(frame_stats["distribution"].keys())
+    values = [frame_stats["distribution"][t] for t in times]
+    ax.bar(times, values, width=0.8, color="#FF99FF", alpha=0.8)
+
+    # Configure axes
+    ax.set_xlim(min(times) - 1, max(times) + 1)
+    ax.set_ylim(0, max(values) * 1.1)
+
+    # Get replay metadata
+    mods_str = (
+        "+" + ",".join([mod.name for mod in Mod if replay.mods & mod.value])
+        if replay.mods
+        else "NoMod"
+    )
+    play_timestamp = replay.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+
+    # Title with stats and metadata
+    title_text = (
+        f"Circle | Frame Time Analysis\n"
+        f"Player: {replay.username} | {mods_str}\n"
+        f"Average: {frame_stats['avg']}ms | Min: {frame_stats['min']}ms | "
+        f"Max: {frame_stats['max']}ms | UR: {frame_stats['unstable_rate']}\n"
+        f"Played on: {play_timestamp}"
+    )
+    ax.set_title(title_text, pad=20, loc="left", fontsize=10)
+
+    # Styling
+    ax.grid(True, axis="y", linestyle="--", alpha=0.15)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["left"].set_visible(False)
+    ax.set_facecolor("black")
+    fig.patch.set_facecolor("black")
+
+    plt.tight_layout()
+    return fig
+
+
+def process_dropped_file(
+    file_path: str, settings: Settings, analysis_type: str = "holdtime"
+):
+    """
+    Process replay file with specified analysis type
+    Types:
+    - holdtime: Only analyze key hold times
+    - frametime: Only analyze frame timings
+    - all: Perform both analyses
+    """
     try:
         clean_path = clean_file_path(file_path)
         console = Console()
@@ -413,15 +529,24 @@ def process_dropped_file(file_path: str, settings: Settings):
         with console.status(
             f"[bold blue]Analyzing replay: {os.path.basename(clean_path)}..."
         ):
-            dist1, dist2, replay, stats = analyze_replay_holdtimes(clean_path, settings)
-            fig = plot_holdtime_distribution(dist1, dist2, replay, stats)
+            replay = Replay.from_path(clean_path)
+            base_path = os.path.join(settings.output_dir, Path(clean_path).stem)
 
-            output_path = os.path.join(
-                settings.output_dir,
-                f"holdtime_{Path(clean_path).stem}.{settings.output_format}",
-            )
-            plt.savefig(output_path)
-            console.print(f"[green]Plot saved as '{output_path}'[/green]")
+            if analysis_type in ["holdtime", "all"]:
+                dist1, dist2, replay, stats = analyze_replay_holdtimes(
+                    clean_path, settings
+                )
+                hold_fig = plot_holdtime_distribution(dist1, dist2, replay, stats)
+                hold_fig.savefig(f"{base_path}_holdtime.{settings.output_format}")
+                plt.close(hold_fig)
+
+            if analysis_type in ["frametime", "all"]:
+                frame_stats = analyze_frame_times(replay.replay_data)
+                frame_fig = plot_frame_distribution(frame_stats, replay)
+                frame_fig.savefig(f"{base_path}_frametime.{settings.output_format}")
+                plt.close(frame_fig)
+
+            console.print(f"[green]Analysis saved in {settings.output_dir}[/green]")
 
     except Exception as e:
         console = Console()
@@ -429,53 +554,92 @@ def process_dropped_file(file_path: str, settings: Settings):
 
 
 def show_menu(settings: Settings):
+    """
+    Main menu system
+    Features:
+    - Hold time analysis
+    - Frame time analysis
+    - Combined analysis
+    - Settings management
+    - Drag & drop mode
+    """
     while True:
         console = Console()
         console.clear()
         show_welcome()
 
         choices = [
-            "1. Select and analyze replay",
-            "2. Settings",
-            "3. Drop mode (drag & drop replay files)",
-            "4. Exit",
+            "1. Analyze Hold Time",
+            "2. Analyze Frame Time",
+            "3. Full Analysis",
+            "4. Settings",
+            "5. Drop Mode",
+            "6. Exit",
         ]
 
         for choice in choices:
             console.print(choice)
 
-        option = Prompt.ask("\nSelect option", choices=["1", "2", "3", "4"])
+        option = Prompt.ask("\nSelect option", choices=["1", "2", "3", "4", "5", "6"])
 
         if option == "1":
             try:
                 replay_path = select_replay()
-                process_dropped_file(replay_path, settings)
+                process_dropped_file(replay_path, settings, "holdtime")
                 input("\nPress Enter to continue...")
             except Exception as e:
                 console.print(f"[red]Error: {e}[/red]")
                 time.sleep(2)
 
         elif option == "2":
+            try:
+                replay_path = select_replay()
+                process_dropped_file(replay_path, settings, "frametime")
+                input("\nPress Enter to continue...")
+            except Exception as e:
+                console.print(f"[red]Error: {e}[/red]")
+                time.sleep(2)
+
+        elif option == "3":
+            try:
+                replay_path = select_replay()
+                process_dropped_file(replay_path, settings, "all")
+                input("\nPress Enter to continue...")
+            except Exception as e:
+                console.print(f"[red]Error: {e}[/red]")
+                time.sleep(2)
+
+        elif option == "4":
             settings = configure_settings()
             settings.save()
             console.print("[green]Settings saved![/green]")
             time.sleep(1)
 
-        elif option == "3":
+        elif option == "5":
             console.print(
                 "\n[yellow]Drop Mode activated - Drag and drop .osr files here[/yellow]"
             )
+            console.print(
+                "[yellow]Analysis type: (h)oldtime, (f)rametime, (a)ll[/yellow]"
+            )
             console.print("[yellow]Press Ctrl+C to exit drop mode[/yellow]\n")
+
+            analysis_type = Prompt.ask(
+                "Analysis type", choices=["h", "f", "a"], default="a"
+            )
+            analysis_map = {"h": "holdtime", "f": "frametime", "a": "all"}
 
             try:
                 while True:
                     file_path = input()
-                    process_dropped_file(file_path, settings)
+                    process_dropped_file(
+                        file_path, settings, analysis_map[analysis_type]
+                    )
             except KeyboardInterrupt:
                 console.print("\n[yellow]Exiting drop mode...[/yellow]")
                 time.sleep(1)
 
-        elif option == "4":
+        elif option == "6":
             console.print("[yellow]Goodbye![/yellow]")
             sys.exit(0)
 
