@@ -20,8 +20,8 @@ import re
 # Constants and configurations
 VERSION = "1.0.0"
 APP_NAME = "Circle Analyzer"
-AUTHOR = "tamaisme"
-GITHUB = "https://github.com/tamaisme/circle-hold-contribution"
+AUTHOR = "catalizcs"
+GITHUB = "https://github.com/catalizcs/circle-analyzer"
 
 MENU_CONFIG = {
     "Analysis Tools": {
@@ -420,9 +420,9 @@ def show_welcome():
     console = Console()
     console.print(
         Panel.fit(
-            PROGRAM_INFO.format(version=PROGRAM_VERSION),
-            title="Welcome",
-            border_style="blue",
+            f"[bold]Welcome to {APP_NAME} v{VERSION}[/bold]\n"
+            f"Author: {AUTHOR}\n"
+            f"GitHub: {GITHUB}\n"
         )
     )
 

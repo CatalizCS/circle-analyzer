@@ -1,6 +1,6 @@
 # Circle Analyzer
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue)](https://github.com/tamaisme/circle-hold-contribution/releases)
+[![Version](https://img.shields.io/badge/version-1.0.0-blue)](https://github.com/catalizcs/circle-hold-contribution/releases)
 [![Python](https://img.shields.io/badge/python-3.8%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
