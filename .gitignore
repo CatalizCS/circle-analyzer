@@ -20,7 +20,7 @@ env/
 *.tiff
 
 # Text files
-*.txt
+output/*.txt
 *.log
 *.csv
 *.dat
