@@ -4,6 +4,19 @@ on:
   push:
     tags:
       - "v*"
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (e.g. v1.0.0)"
+        required: false
+        default: ""
+      beta:
+        description: "Beta release"
+        type: boolean
+        default: false
 
 jobs:
   build:
@@ -11,6 +24,18 @@ jobs:
 
     steps:
       - uses: actions/checkout@v2
+
+      - name: Set version
+        id: version
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ github.event.inputs.version }}" != "" ]]; then
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          else
+            echo "version=latest" >> $GITHUB_OUTPUT
+          fi
+        shell: bash
 
       - name: Set up Python
         uses: actions/setup-python@v2
@@ -25,7 +50,7 @@ jobs:
 
       - name: Create executable
         run: |
-          pyinstaller --onefile --name circle-analyzer main.py
+          pyinstaller --onefile --name "circle-analyzer" --icon "assets/icon.ico" main.py
 
       - name: Prepare release files
         run: |
@@ -43,7 +68,17 @@ jobs:
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
         with:
-          files: circle-analyzer.zip
+          name: ${{ steps.version.outputs.version }}
+          prerelease: ${{ github.event.inputs.beta }}
+          draft: false
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v2
+        with:
+          name: circle-analyzer-build
+          path: circle-analyzer.zip
